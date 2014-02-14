@@ -1,1 +1,1 @@
-Resa Implementation, based on storm
+Resa Implementation, based on storm.
