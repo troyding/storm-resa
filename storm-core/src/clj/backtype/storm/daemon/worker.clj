@@ -449,6 +449,7 @@
   (fn [] (halt-process! 1 "Worker died")))
 
 (defn -main [storm-id assignment-id port-str worker-id]  
-  (let [conf (read-storm-config)]
-    (validate-distributed-mode! conf)
-    (mk-worker conf nil (java.net.URLDecoder/decode storm-id) assignment-id (Integer/parseInt port-str) worker-id)))
+  (let [conf (read-storm-config)
+        _ (validate-distributed-mode! conf)
+        shutdownable (mk-worker conf nil (java.net.URLDecoder/decode storm-id) assignment-id (Integer/parseInt port-str) worker-id)]
+    (.addShutdownHook (Runtime/getRuntime) (Thread. (fn [] (.shutdown shutdownable))))))
