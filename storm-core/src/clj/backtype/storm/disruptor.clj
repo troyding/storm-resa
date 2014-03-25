@@ -14,10 +14,10 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 (ns backtype.storm.disruptor
-  (:import [backtype.storm.utils DisruptorQueue])
+  (:import [backtype.storm.utils DisruptorQueue TracedDisruptorQueue])
   (:import [com.lmax.disruptor MultiThreadedClaimStrategy SingleThreadedClaimStrategy
-              BlockingWaitStrategy SleepingWaitStrategy YieldingWaitStrategy
-              BusySpinWaitStrategy])
+            BlockingWaitStrategy SleepingWaitStrategy YieldingWaitStrategy
+            BusySpinWaitStrategy])
   (:require [clojure [string :as str]])
   (:require [clojure [set :as set]])
   (:use [clojure walk])
@@ -27,14 +27,14 @@
 (def CLAIM-STRATEGY
   {:multi-threaded (fn [size] (MultiThreadedClaimStrategy. (int size)))
    :single-threaded (fn [size] (SingleThreadedClaimStrategy. (int size)))
-    })
-    
+   })
+
 (def WAIT-STRATEGY
   {:block (fn [] (BlockingWaitStrategy.))
    :yield (fn [] (YieldingWaitStrategy.))
    :sleep (fn [] (SleepingWaitStrategy.))
    :spin (fn [] (BusySpinWaitStrategy.))
-    })
+   })
 
 
 (defn- mk-wait-strategy [spec]
@@ -49,8 +49,14 @@
 ;; unblocking the consumer
 (defnk disruptor-queue [buffer-size :claim-strategy :multi-threaded :wait-strategy :block]
   (DisruptorQueue. ((CLAIM-STRATEGY claim-strategy) buffer-size)
-                   (mk-wait-strategy wait-strategy)
-                   ))
+    (mk-wait-strategy wait-strategy)
+    ))
+
+(defnk disruptor-traced-queue [conf buffer-size :claim-strategy :multi-threaded :wait-strategy :block]
+  (let [trace-queue (conf "topology.queue.trace")]
+    (if (and (not-nil? trace-queue) trace-queue)
+      (TracedDisruptorQueue. ((CLAIM-STRATEGY claim-strategy) buffer-size) (mk-wait-strategy wait-strategy) conf)
+      (DisruptorQueue. ((CLAIM-STRATEGY claim-strategy) buffer-size) (mk-wait-strategy wait-strategy)))))
 
 (defn clojure-handler [afn]
   (reify com.lmax.disruptor.EventHandler
@@ -87,13 +93,13 @@
   (let [ret (async-loop
               (fn []
                 (consume-batch-when-available queue handler)
-                0 )
+                0)
               :kill-fn kill-fn
               :thread-name thread-name
               )]
-     (consumer-started! queue)
-     ret
-     ))
+    (consumer-started! queue)
+    ret
+    ))
 
 (defmacro consume-loop [queue & handler-args]
   `(let [handler# (handler ~@handler-args)]

@@ -208,7 +208,8 @@
         component-id (.getComponentId worker-context (first task-ids))
         storm-conf (normalized-component-conf (:storm-conf worker) worker-context component-id)
         executor-type (executor-type worker-context component-id)
-        batch-transfer->worker (disruptor/disruptor-queue
+        batch-transfer->worker (disruptor/disruptor-traced-queue
+                                  storm-conf
                                   (storm-conf TOPOLOGY-EXECUTOR-SEND-BUFFER-SIZE)
                                   :claim-strategy :single-threaded
                                   :wait-strategy (storm-conf TOPOLOGY-DISRUPTOR-WAIT-STRATEGY))
