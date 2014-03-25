@@ -56,7 +56,7 @@ public class TracedDisruptorQueue extends DisruptorQueue {
 
     public TracedDisruptorQueue(ClaimStrategy claim, WaitStrategy wait, Map<String, Object> conf) {
         super(claim, wait);
-        this.sampleInterval = Utils.getInt(conf.getOrDefault("topology.queue.trace.interval", 20));
+        this.sampleInterval = (int) (1 / ((Number) conf.getOrDefault("topology.queue.sample.rate", 0.05f)).floatValue());
     }
 
     public boolean doSample() {
