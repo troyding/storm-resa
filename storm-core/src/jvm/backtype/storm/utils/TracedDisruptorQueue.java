@@ -17,8 +17,9 @@
  */
 package backtype.storm.utils;
 
-import com.lmax.disruptor.*;
-import com.sun.org.apache.bcel.internal.generic.ALOAD;
+import com.lmax.disruptor.ClaimStrategy;
+import com.lmax.disruptor.InsufficientCapacityException;
+import com.lmax.disruptor.WaitStrategy;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -59,14 +60,9 @@ public class TracedDisruptorQueue extends DisruptorQueue {
         this.sampleInterval = (int) (1 / ((Number) conf.getOrDefault("topology.queue.sample.rate", 0.05f)).floatValue());
     }
 
-    public boolean doSample() {
-        return (sampleCounterBase + conuter.incrementAndGet()) % sampleInterval == 0;
-    }
-
     public void publish(Object obj, boolean block) throws InsufficientCapacityException {
         super.publish(obj, block);
-        conuter.addAndGet(1);
-        if (doSample()) {
+        if ((sampleCounterBase + conuter.incrementAndGet()) % sampleInterval == 0) {
             queueState.update((int) population());
         }
     }
