@@ -390,7 +390,7 @@
   ;; TODO: should probably do a ps ax of some sort to make sure it was killed
   (try-cause
     ;;(exec-command! (str (if on-windows? "taskkill /f /pid " "kill -9 ") pid))
-    (exec-command! (str (if on-windows? "taskkill /pid " "kill ") pid))
+    (exec-command! (str (if on-windows? "taskkill /f /pid " "kill -9 ") pid))
   (catch ExecuteException e
     (log-message "Error when trying to kill " pid ". Process is probably already dead."))
     ))

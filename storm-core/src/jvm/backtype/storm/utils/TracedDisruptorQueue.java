@@ -35,14 +35,14 @@ public class TracedDisruptorQueue extends DisruptorQueue {
 
     class QueueState {
         public AtomicInteger count = new AtomicInteger();
-        public AtomicInteger totalLen = new AtomicInteger();
+        public AtomicLong totalLen = new AtomicLong();
 
         public void update(int len) {
             count.incrementAndGet();
             totalLen.addAndGet(len);
         }
 
-        void getAndReset(Map<String, Integer> output) {
+        void getAndReset(Map<String, Number> output) {
             output.put("sampleCount", count.getAndSet(0));
             output.put("totalQueueLen", totalLen.getAndSet(0));
         }
@@ -51,7 +51,7 @@ public class TracedDisruptorQueue extends DisruptorQueue {
 
     private AtomicInteger conuter = new AtomicInteger();
     private long sampleCounterBase = 0;
-    private AtomicLong last = new AtomicLong(System.currentTimeMillis());
+    private long last = System.currentTimeMillis();
     private final int sampleInterval;
     private QueueState queueState = new QueueState();
 
@@ -74,9 +74,12 @@ public class TracedDisruptorQueue extends DisruptorQueue {
             return Collections.emptyMap();
         }
         sampleCounterBase = sampleCounterBase + count;
-        Map state = new HashMap<String, Integer>();
+        Map state = new HashMap<String, Number>();
         state.put("totalCount", (int) count);
         queueState.getAndReset(state);
+        long now = System.currentTimeMillis();
+        state.put("duration", now - last);
+        last = now;
         return state;
     }
 
