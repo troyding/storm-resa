@@ -34,21 +34,24 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class Server implements IConnection {
     private static final Logger LOG = LoggerFactory.getLogger(Server.class);
     @SuppressWarnings("rawtypes")
     Map storm_conf;
     int port;
+    private final AtomicBoolean shouldClosed;
     private LinkedBlockingQueue<TaskMessage> message_queue;
     volatile ChannelGroup allChannels = new DefaultChannelGroup("storm-server");
     final ChannelFactory factory;
     final ServerBootstrap bootstrap;
 
     @SuppressWarnings("rawtypes")
-    Server(Map storm_conf, int port) {
+    Server(Map storm_conf, int port, AtomicBoolean closed) {
         this.storm_conf = storm_conf;
         this.port = port;
+        shouldClosed = closed;
         message_queue = new LinkedBlockingQueue<TaskMessage>();
 
         // Configure the server.
@@ -74,7 +77,8 @@ class Server implements IConnection {
     }
 
     /**
-     * enqueue a received message 
+     * enqueue a received message
+     *
      * @param message
      * @throws InterruptedException
      */
@@ -82,12 +86,12 @@ class Server implements IConnection {
         message_queue.put(message);
         LOG.debug("message received with task: {}, payload size: {}", message.task(), message.message().length);
     }
-    
+
     /**
      * fetch a message from message queue synchronously (flags != 1) or asynchronously (flags==1)
      */
-    public TaskMessage recv(int flags)  {
-        if ((flags & 0x01) == 0x01) { 
+    public TaskMessage recv(int flags) {
+        if ((flags & 0x01) == 0x01) {
             //non-blocking
             return message_queue.poll();
         } else {
@@ -104,14 +108,16 @@ class Server implements IConnection {
 
     /**
      * register a newly created channel
+     *
      * @param channel
      */
     protected void addChannel(Channel channel) {
         allChannels.add(channel);
     }
-    
+
     /**
      * close a channel
+     *
      * @param channel
      */
     protected void closeChannel(Channel channel) {
@@ -123,7 +129,7 @@ class Server implements IConnection {
      * close all channels, and release resources
      */
     public synchronized void close() {
-        if (allChannels != null) {  
+        if (shouldClosed.get() && allChannels != null) {
             allChannels.close().awaitUninterruptibly();
             factory.releaseExternalResources();
             allChannels = null;

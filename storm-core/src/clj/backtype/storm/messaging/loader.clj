@@ -15,7 +15,8 @@
 ;; limitations under the License.
 (ns backtype.storm.messaging.loader
   (:use [backtype.storm util log])
-  (:import [java.util ArrayList])
+  (:import [java.util ArrayList]
+           [backtype.storm.utils Utils])
   (:import [backtype.storm.messaging IContext IConnection TaskMessage])
   (:import [backtype.storm.utils DisruptorQueue MutableObject])
   (:require [backtype.storm.messaging [local :as local]])
@@ -30,12 +31,16 @@
    :kill-fn (fn [t] (System/exit 1))
    :priority Thread/NORM_PRIORITY]
   (let [max-buffer-size (int max-buffer-size)
+        serv-socket (MutableObject.)
         vthread (async-loop
                  (fn []
-                   (let [socket (.bind ^IContext context storm-id port)]
+                   (let [socket (.bind ^IContext context storm-id port)
+                         _ (.setObject serv-socket socket)
+                         _ (log-message "create server OK")]
                      (fn []
                        (let [batched (ArrayList.)
-                             init (.recv ^IConnection socket 0)]
+                             init (.recv ^IConnection socket 1)
+                             _ (if (nil? init) (Utils/sleep 10))]
                          (loop [packet init]
                            (let [task (if packet (.task ^TaskMessage packet))
                                  message (if packet (.message ^TaskMessage packet))]
@@ -51,18 +56,22 @@
                                      0 ))))))))))
                  :factory? true
                  :daemon daemon
+                 :thread-name "receive-thread"
                  :kill-fn kill-fn
                  :priority priority)]
     (fn []
-      (let [kill-socket (.connect ^IContext context storm-id "localhost" port)]
-        (log-message "Shutting down receiving-thread: [" storm-id ", " port "]")
-        (.send ^IConnection kill-socket
-                  -1
-                  (byte-array []))
-        (log-message "Waiting for receiving-thread:[" storm-id ", " port "] to die")
-        (.join vthread)
-        (.close ^IConnection kill-socket)
-        (log-message "Shutdown receiving-thread: [" storm-id ", " port "]")
-        ))))
+      (interrupt vthread)
+      (.close (.getObject serv-socket))
+      )))
+;      (let [kill-socket (.connect ^IContext context storm-id "localhost" port)]
+;        (log-message "Shutting down receiving-thread: [" storm-id ", " port "]")
+;        (.send ^IConnection kill-socket
+;                  -1
+;                  (byte-array []))
+;        (log-message "Waiting for receiving-thread:[" storm-id ", " port "] to die")
+;        (.join vthread)
+;        (.close ^IConnection kill-socket)
+;        (log-message "Shutdown receiving-thread: [" storm-id ", " port "]")
+;        ))))
 
 

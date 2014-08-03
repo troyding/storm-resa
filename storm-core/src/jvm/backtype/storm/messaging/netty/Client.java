@@ -107,11 +107,10 @@ class Client implements IConnection {
     /**
      * # of milliseconds to wait per exponential back-off policy
      */
-    private int getSleepTimeMs()
-    {
+    private int getSleepTimeMs() {
         int backoff = 1 << retries.get();
         int sleepMs = base_sleep_ms * Math.max(1, random.nextInt(backoff));
-        if ( sleepMs > max_sleep_ms )
+        if (sleepMs > max_sleep_ms)
             sleepMs = max_sleep_ms;
         return sleepMs;
     }
@@ -134,17 +133,18 @@ class Client implements IConnection {
 
     /**
      * Take all enqueued messages from queue
+     *
      * @return
      * @throws InterruptedException
      */
-    MessageBatch takeMessages()  throws InterruptedException {
+    MessageBatch takeMessages() throws InterruptedException {
         //1st message
         MessageBatch batch = new MessageBatch(buffer_size);
         Object msg = message_queue.take();
         batch.add(msg);
 
         //we will discard any message after CLOSE
-        if (msg==ControlMessage.CLOSE_MESSAGE)
+        if (msg == ControlMessage.CLOSE_MESSAGE)
             return batch;
 
         while (!batch.isFull()) {
@@ -154,7 +154,7 @@ class Client implements IConnection {
             if (msg == null) break;
 
             //we will discard any message after CLOSE
-            if (msg==ControlMessage.CLOSE_MESSAGE) {
+            if (msg == ControlMessage.CLOSE_MESSAGE) {
                 message_queue.take();
                 batch.add(msg);
                 break;
@@ -173,7 +173,7 @@ class Client implements IConnection {
 
     /**
      * gracefully close this client.
-     *
+     * <p>
      * We will send all existing requests, and then invoke close_n_release() method
      */
     public synchronized void close() {
@@ -182,8 +182,8 @@ class Client implements IConnection {
             try {
                 message_queue.put(ControlMessage.CLOSE_MESSAGE);
                 being_closed.set(true);
-            } catch (InterruptedException e) {
                 close_n_release();
+            } catch (InterruptedException e) {
             }
         }
     }
@@ -191,16 +191,19 @@ class Client implements IConnection {
     /**
      * close_n_release() is invoked after all messages have been sent.
      */
-    void  close_n_release() {
-        if (channelRef.get() != null)
+    void close_n_release() {
+        if (channelRef.get() != null) {
             channelRef.get().close().awaitUninterruptibly();
+        }
 
         //we need to release resources
         new Thread(new Runnable() {
             @Override
             public void run() {
                 factory.releaseExternalResources();
-            }}).start();
+                LOG.info("client released");
+            }
+        }).start();
     }
 
     public TaskMessage recv(int flags) {
@@ -212,6 +215,12 @@ class Client implements IConnection {
         //reset retries
         if (channel != null)
             retries.set(0);
+    }
+
+    public static void main(String[] args) {
+        Client client = new Client(Utils.readStormConfig(), "192.168.0.19", 6700);
+        client.send(9, new byte[4]);
+        System.out.println("done");
     }
 
 }

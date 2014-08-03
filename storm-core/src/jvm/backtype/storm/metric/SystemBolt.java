@@ -18,7 +18,6 @@
 package backtype.storm.metric;
 
 import backtype.storm.Config;
-import backtype.storm.metric.api.AssignableMetric;
 import backtype.storm.metric.api.IMetric;
 import backtype.storm.task.IBolt;
 import backtype.storm.task.OutputCollector;
@@ -32,7 +31,6 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.management.*;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 
@@ -43,14 +41,20 @@ public class SystemBolt implements IBolt {
     private static Logger LOG = LoggerFactory.getLogger(SystemBolt.class);
     private static boolean _prepareWasCalled = false;
 
+    public static synchronized void reset() {
+        _prepareWasCalled = false;
+    }
+
     private static class MemoryUsageMetric implements IMetric {
         IFn _getUsage;
+
         public MemoryUsageMetric(IFn getUsage) {
             _getUsage = getUsage;
         }
+
         @Override
         public Object getValueAndReset() {
-            MemoryUsage memUsage = (MemoryUsage)_getUsage.invoke();
+            MemoryUsage memUsage = (MemoryUsage) _getUsage.invoke();
             HashMap m = new HashMap();
             m.put("maxBytes", memUsage.getMax());
             m.put("committedBytes", memUsage.getCommitted());
@@ -68,16 +72,18 @@ public class SystemBolt implements IBolt {
         GarbageCollectorMXBean _gcBean;
         Long _collectionCount;
         Long _collectionTime;
+
         public GarbageCollectorMetric(GarbageCollectorMXBean gcBean) {
             _gcBean = gcBean;
         }
+
         @Override
         public Object getValueAndReset() {
             Long collectionCountP = _gcBean.getCollectionCount();
             Long collectionTimeP = _gcBean.getCollectionTime();
 
             Map ret = null;
-            if(_collectionCount!=null && _collectionTime!=null) {
+            if (_collectionCount != null && _collectionTime != null) {
                 ret = new HashMap();
                 ret.put("count", collectionCountP - _collectionCount);
                 ret.put("timeMs", collectionTimeP - _collectionTime);
@@ -91,7 +97,7 @@ public class SystemBolt implements IBolt {
 
     @Override
     public void prepare(final Map stormConf, TopologyContext context, OutputCollector collector) {
-        if(_prepareWasCalled && !"local".equals(stormConf.get(Config.STORM_CLUSTER_MODE))) {
+        if (_prepareWasCalled && !"local".equals(stormConf.get(Config.STORM_CLUSTER_MODE))) {
             throw new RuntimeException("A single worker should have 1 SystemBolt instance.");
         }
         _prepareWasCalled = true;
@@ -103,14 +109,14 @@ public class SystemBolt implements IBolt {
         context.registerMetric("uptimeSecs", new IMetric() {
             @Override
             public Object getValueAndReset() {
-                return jvmRT.getUptime()/1000.0;
+                return jvmRT.getUptime() / 1000.0;
             }
         }, bucketSize);
 
         context.registerMetric("startTimeSecs", new IMetric() {
             @Override
             public Object getValueAndReset() {
-                return jvmRT.getStartTime()/1000.0;
+                return jvmRT.getStartTime() / 1000.0;
             }
         }, bucketSize);
 
@@ -139,7 +145,7 @@ public class SystemBolt implements IBolt {
             }
         }), bucketSize);
 
-        for(GarbageCollectorMXBean b : ManagementFactory.getGarbageCollectorMXBeans()) {
+        for (GarbageCollectorMXBean b : ManagementFactory.getGarbageCollectorMXBeans()) {
             context.registerMetric("GC/" + b.getName().replaceAll("\\W", ""), new GarbageCollectorMetric(b), bucketSize);
         }
     }

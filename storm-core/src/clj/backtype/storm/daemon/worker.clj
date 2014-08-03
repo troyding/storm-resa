@@ -17,19 +17,24 @@
   (:use [backtype.storm.daemon common])
   (:use [backtype.storm bootstrap])
   (:require [backtype.storm.daemon [executor :as executor]])
-  (:import [java.util.concurrent Executors])
+  (:import [java.util.concurrent Executors]
+           [backtype.storm.utils MutableObject Utils]
+           [java.util SortedSet TreeSet]
+           [backtype.storm.metric SystemBolt])
   (:import [backtype.storm.messaging TransportFactory])
   (:import [backtype.storm.messaging IContext IConnection])
   (:gen-class))
 
 (bootstrap)
 
+(def assignment-changed (atom false))
+
 (defmulti mk-suicide-fn cluster-mode)
 
 (defn read-worker-executors [storm-conf storm-cluster-state storm-id assignment-id port]
   (let [assignment (:executor->node+port (.assignment-info storm-cluster-state storm-id nil))]
     (doall
-     (concat     
+     (concat
       [Constants/SYSTEM_EXECUTOR_ID]
       (mapcat (fn [[executor loc]]
                 (if (= loc [assignment-id port])
@@ -50,7 +55,7 @@
                :time-secs (current-time-secs)
                }]
     ;; do the zookeeper heartbeat
-    (.worker-heartbeat! (:storm-cluster-state worker) (:storm-id worker) (:assignment-id worker) (:port worker) zk-hb)    
+    (.worker-heartbeat! (:storm-cluster-state worker) (:storm-id worker) (:assignment-id worker) (:port worker) zk-hb)
     ))
 
 (defn do-heartbeat [worker]
@@ -172,7 +177,7 @@
         transfer-queue (disruptor/disruptor-queue (storm-conf TOPOLOGY-TRANSFER-BUFFER-SIZE)
                                                   :wait-strategy (storm-conf TOPOLOGY-DISRUPTOR-WAIT-STRATEGY))
         executor-receive-queue-map (mk-receive-queue-map storm-conf executors)
-        
+
         receive-queue-map (->> executor-receive-queue-map
                                (mapcat (fn [[e queue]] (for [t (executor-id->tasks e)] [t queue])))
                                (into {}))
@@ -233,12 +238,25 @@
   (let [outbound-tasks (worker-outbound-tasks worker)
         conf (:conf worker)
         storm-cluster-state (:storm-cluster-state worker)
-        storm-id (:storm-id worker)]
+        storm-id (:storm-id worker)
+        my-endpoint [(:assignment-id worker) (:port worker)]]
     (fn this
       ([]
         (this (fn [& ignored] (schedule (:refresh-connections-timer worker) 0 this))))
       ([callback]
         (let [assignment (.assignment-info storm-cluster-state storm-id callback)
+              my-tasks (-> assignment
+                         :executor->node+port
+                         to-task->node+port
+                         reverse-map
+                         (#(.get % my-endpoint))
+                         set)
+              ;_ (log-message (String/valueOf my-tasks))
+              ;_ (log-message (-> worker :task-ids set))
+              _  (when (and (false? @assignment-changed) (not= my-tasks (-> worker :task-ids set (#(disj % -1)))))
+                   (log-message (str "assignment-changed:" (-> worker :task-ids set (#(disj % -1)))) "--->" my-tasks)
+                   (System/setProperty "new-worker-assignment" (clojure.string/join "," my-tasks))
+                   (reset! assignment-changed true))
               my-assignment (-> assignment
                                 :executor->node+port
                                 to-task->node+port
@@ -249,7 +267,7 @@
                                       (filter-key (complement (-> worker :task-ids set))))
               needed-connections (-> needed-assignment vals set)
               needed-tasks (-> needed-assignment keys)
-              
+
               current-connections (set (keys @(:cached-node+port->socket worker)))
               new-connections (set/difference needed-connections current-connections)
               remove-connections (set/difference current-connections needed-connections)]
@@ -275,7 +293,7 @@
                      (:cached-node+port->socket worker)
                      #(HashMap. (apply dissoc (into {} %1) %&))
                      remove-connections)
-              
+
               (let [missing-tasks (->> needed-tasks
                                        (filter (complement my-assignment)))]
                 (when-not (empty? missing-tasks)
@@ -310,7 +328,7 @@
                   task->node+port @task->node+port]
               ;; consider doing some automatic batching here (would need to not be serialized at this point to remove per-tuple overhead)
               ;; try using multipart messages ... first sort the tuples by the target node (without changing the local ordering)
-            
+
               (fast-list-iter [[task ser-tuple] drainer]
                 ;; TODO: consider write a batch of tuples here to every target worker  
                 ;; group by node+port, do multipart send              
@@ -341,45 +359,50 @@
 ;; what about if there's inconsistency in assignments? -> but nimbus
 ;; should guarantee this consistency
 ;; TODO: consider doing worker heartbeating rather than task heartbeating to reduce the load on zookeeper
-(defserverfn mk-worker [conf shared-mq-context storm-id assignment-id port worker-id]
+(defserverfn mk-worker [conf shared-mq-context storm-id assignment-id port worker-id restart]
   (log-message "Launching worker for " storm-id " on " assignment-id ":" port " with id " worker-id
                " and conf " conf)
   (if-not (local-mode? conf)
     (redirect-stdio-to-slf4j!))
   ;; because in local mode, its not a separate
   ;; process. supervisor will register it in this case
-  (when (= :distributed (cluster-mode conf))
+  (when (and (= restart false) (= :distributed (cluster-mode conf)))
     (touch (worker-pid-path conf worker-id (process-pid))))
   (let [worker (worker-data conf shared-mq-context storm-id assignment-id port worker-id)
         heartbeat-fn #(do-heartbeat worker)
         ;; do this here so that the worker process dies if this fails
         ;; it's important that worker heartbeat to supervisor ASAP when launching so that the supervisor knows it's running (and can move on)
         _ (heartbeat-fn)
-        
+
         ;; heartbeat immediately to nimbus so that it knows that the worker has been started
         _ (do-executor-heartbeats worker)
-        
-        
+
+
         executors (atom nil)
         ;; launch heartbeat threads immediately so that slow-loading tasks don't cause the worker to timeout
         ;; to the supervisor
         _ (schedule-recurring (:heartbeat-timer worker) 0 (conf WORKER-HEARTBEAT-FREQUENCY-SECS) heartbeat-fn)
         _ (schedule-recurring (:executor-heartbeat-timer worker) 0 (conf TASK-HEARTBEAT-FREQUENCY-SECS) #(do-executor-heartbeats worker :executors @executors))
 
-        
+
         refresh-connections (mk-refresh-connections worker)
 
         _ (refresh-connections nil)
         _ (refresh-storm-active worker nil)
- 
+
         _ (reset! executors (dofor [e (:executors worker)] (executor/mk-executor worker e)))
         receive-thread-shutdown (launch-receive-thread worker)
-        
+
         transfer-tuples (mk-transfer-tuples-handler worker)
-        
-        transfer-thread (disruptor/consume-loop* (:transfer-queue worker) transfer-tuples)                                       
+
+        transfer-thread (disruptor/consume-loop* (:transfer-queue worker) transfer-tuples)
         shutdown* (fn []
                     (log-message "Shutting down worker " storm-id " " assignment-id " " port)
+                    ;move here
+                    (disruptor/halt-with-interrupt! (:transfer-queue worker))
+                    (.interrupt transfer-thread)
+                    (.join transfer-thread)
+                    ;end
                     (doseq [[_ socket] @(:cached-node+port->socket worker)]
                       ;; this will do best effort flushing since the linger period
                       ;; was set on creation
@@ -391,26 +414,26 @@
                     (log-message "Shutting down executors")
                     (doseq [executor @executors] (.shutdown executor))
                     (log-message "Shut down executors")
-                                        
+
                     ;;this is fine because the only time this is shared is when it's a local context,
                     ;;in which case it's a noop
-                    (.term ^IContext (:mq-context worker))
+;                    (.term ^IContext (:mq-context worker))
                     (log-message "Shutting down transfer thread")
-                    (disruptor/halt-with-interrupt! (:transfer-queue worker))
-
-                    (.interrupt transfer-thread)
-                    (.join transfer-thread)
+;                    (disruptor/halt-with-interrupt! (:transfer-queue worker))
+;
+;                    (.interrupt transfer-thread)
+;                    (.join transfer-thread)
                     (log-message "Shut down transfer thread")
                     (cancel-timer (:heartbeat-timer worker))
                     (cancel-timer (:refresh-connections-timer worker))
                     (cancel-timer (:refresh-active-timer worker))
                     (cancel-timer (:executor-heartbeat-timer worker))
                     (cancel-timer (:user-timer worker))
-                    
+
                     (close-resources worker)
-                    
+
                     ;; TODO: here need to invoke the "shutdown" method of WorkerHook
-                    
+
                     (.remove-worker-heartbeat! (:storm-cluster-state worker) storm-id assignment-id port)
                     (log-message "Disconnecting from storm cluster state context")
                     (.disconnect (:storm-cluster-state worker))
@@ -431,7 +454,7 @@
                  (timer-waiting? (:user-timer worker))
                  ))
              )]
-    
+
     (schedule-recurring (:refresh-connections-timer worker) 0 (conf TASK-REFRESH-POLL-SECS) refresh-connections)
     (schedule-recurring (:refresh-active-timer worker) 0 (conf TASK-REFRESH-POLL-SECS) (partial refresh-storm-active worker))
 
@@ -448,8 +471,31 @@
   :distributed [conf]
   (fn [] (halt-process! 1 "Worker died")))
 
-(defn -main [storm-id assignment-id port-str worker-id]  
+(defn- check-assignment [conf mq-context storm-id assignment-id port-str worker-id worker]
+  (let [shutdownableObj  (MutableObject.)
+        _ (.setObject shutdownableObj worker)]
+    (fn []  (when @assignment-changed
+               (log-message "assignment changed, restart worker")
+               (let [shutdownable (.getObject shutdownableObj)
+                     _ (.shutdown shutdownable)
+                     _ (log-message (str "Worker " worker-id "shutdown successfully"))
+                     _ (SystemBolt/reset)
+                     _ (log-message (str "Begin to restart worker " worker-id))
+                     shutdownable (mk-worker conf mq-context (java.net.URLDecoder/decode storm-id) assignment-id
+                              (Integer/parseInt port-str) worker-id true)]
+                 (.setObject shutdownableObj shutdownable)
+                 (reset! assignment-changed false))
+               (log-message "new worker started"))
+    100)))
+
+(defn -main [storm-id assignment-id port-str worker-id]
   (let [conf (read-storm-config)
+        storm-conf (read-supervisor-storm-conf conf storm-id)
+        mq-context (TransportFactory/makeContext storm-conf)
         _ (validate-distributed-mode! conf)
-        shutdownable (mk-worker conf nil (java.net.URLDecoder/decode storm-id) assignment-id (Integer/parseInt port-str) worker-id)]
-    (.addShutdownHook (Runtime/getRuntime) (Thread. (fn [] (.shutdown shutdownable))))))
+        shutdownable (mk-worker conf mq-context (java.net.URLDecoder/decode storm-id) assignment-id
+                       (Integer/parseInt port-str) worker-id false)
+        check-ass-fn (check-assignment conf mq-context storm-id assignment-id port-str worker-id shutdownable)]
+    (loop [] (Utils/sleep (check-ass-fn)) (recur))
+    ))
+;    (.addShutdownHook (Runtime/getRuntime) (Thread. (fn [] (.shutdown shutdownable))

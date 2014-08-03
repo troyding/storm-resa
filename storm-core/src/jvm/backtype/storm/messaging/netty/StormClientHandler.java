@@ -24,12 +24,12 @@ import org.slf4j.LoggerFactory;
 import java.net.ConnectException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class StormClientHandler extends SimpleChannelUpstreamHandler  {
+public class StormClientHandler extends SimpleChannelUpstreamHandler {
     private static final Logger LOG = LoggerFactory.getLogger(StormClientHandler.class);
     private Client client;
     private AtomicBoolean being_closed;
-    long start_time; 
-    
+    long start_time;
+
     StormClientHandler(Client client) {
         this.client = client;
         being_closed = new AtomicBoolean(false);
@@ -41,11 +41,11 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
         //register the newly established channel
         Channel channel = event.getChannel();
         client.setChannel(channel);
-        LOG.debug("connection established to a remote host");
-        
+        LOG.debug("connection established to a remote host {}", event.getChannel().getRemoteAddress());
+
         //send next request
         try {
-            sendRequests(channel, client.takeMessages());
+            sendRequests(channel);
         } catch (InterruptedException e) {
             channel.close();
         }
@@ -54,16 +54,16 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
     @Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent event) {
         LOG.debug("send/recv time (ms): {}", (System.currentTimeMillis() - start_time));
-        
+
         //examine the response message from server
-        ControlMessage msg = (ControlMessage)event.getMessage();
-        if (msg==ControlMessage.FAILURE_RESPONSE)
+        ControlMessage msg = (ControlMessage) event.getMessage();
+        if (msg == ControlMessage.FAILURE_RESPONSE)
             LOG.info("failure response:{}", msg);
 
         //send next request
         Channel channel = event.getChannel();
         try {
-            sendRequests(channel, client.takeMessages());
+            sendRequests(channel);
         } catch (InterruptedException e) {
             channel.close();
         }
@@ -71,14 +71,25 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
 
     /**
      * Retrieve a request from message queue, and send to server
+     *
      * @param channel
      */
-    private void sendRequests(Channel channel, final MessageBatch requests) {
-        if (requests==null || requests.size()==0 || being_closed.get()) return;
+    private void sendRequests(Channel channel) throws InterruptedException {
+        if (!channel.isConnected()) {
+            client.setChannel(null);
+            client.reconnect();
+            LOG.debug("Channel is shutdown, restart it");
+            return;
+        } else if (!channel.isWritable()) {
+            LOG.debug("Maybe chanel is not writable");
+        }
+        MessageBatch requests = client.takeMessages();
+        if (requests == null || requests.size() == 0 || being_closed.get())
+            return;
 
         //if task==CLOSE_MESSAGE for our last request, the channel is to be closed
-        Object last_msg = requests.get(requests.size()-1);
-        if (last_msg==ControlMessage.CLOSE_MESSAGE) {
+        Object last_msg = requests.get(requests.size() - 1);
+        if (last_msg == ControlMessage.CLOSE_MESSAGE) {
             being_closed.set(true);
             requests.remove(last_msg);
         }
@@ -90,6 +101,7 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
             return;
         }
 
+        LOG.debug("Begin to send request to {}, size is {}", channel.getRemoteAddress(), requests.size());
         //write request into socket channel
         ChannelFuture future = channel.write(requests);
         future.addListener(new ChannelFutureListener() {
@@ -99,7 +111,7 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
                     LOG.info("failed to send requests:", future.getCause());
                     future.getChannel().close();
                 } else {
-                    LOG.debug("{} request(s) sent", requests.size());
+                    LOG.debug("{} request(s) sent to {}", requests.size(), channel.getRemoteAddress());
                 }
                 if (being_closed.get())
                     client.close_n_release();
@@ -112,7 +124,7 @@ public class StormClientHandler extends SimpleChannelUpstreamHandler  {
         Throwable cause = event.getCause();
         if (!(cause instanceof ConnectException)) {
             LOG.info("Connection failed:", cause);
-        } 
+        }
         if (!being_closed.get()) {
             client.setChannel(null);
             client.reconnect();

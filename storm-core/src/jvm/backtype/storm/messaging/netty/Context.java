@@ -22,35 +22,40 @@ import backtype.storm.messaging.IContext;
 
 import java.util.Map;
 import java.util.Vector;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class Context implements IContext {
     @SuppressWarnings("rawtypes")
     private Map storm_conf;
     private volatile Vector<IConnection> connections;
-    
+    private IConnection server = null;
+    private AtomicBoolean closed = new AtomicBoolean(false);
+
     /**
-     * initialization per Storm configuration 
+     * initialization per Storm configuration
      */
     @SuppressWarnings("rawtypes")
     public void prepare(Map storm_conf) {
-       this.storm_conf = storm_conf;
-       connections = new Vector<IConnection>(); 
+        this.storm_conf = storm_conf;
+        connections = new Vector<IConnection>();
     }
 
     /**
      * establish a server with a binding port
      */
-    public IConnection bind(String storm_id, int port) {
-        IConnection server = new Server(storm_conf, port);
-        connections.add(server);
+    public synchronized IConnection bind(String storm_id, int port) {
+        if (server == null) {
+            server = new Server(storm_conf, port, closed);
+        }
+//        connections.add(server);
         return server;
     }
 
     /**
      * establish a connection to a remote server
      */
-    public IConnection connect(String storm_id, String host, int port) {        
-        IConnection client =  new Client(storm_conf, host, port);
+    public IConnection connect(String storm_id, String host, int port) {
+        IConnection client = new Client(storm_conf, host, port);
         connections.add(client);
         return client;
     }
@@ -62,6 +67,10 @@ public class Context implements IContext {
         for (IConnection conn : connections) {
             conn.close();
         }
+        closed.set(true);
         connections = null;
+        if (server != null) {
+            server.close();
+        }
     }
 }

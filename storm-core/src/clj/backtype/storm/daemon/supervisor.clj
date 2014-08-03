@@ -94,9 +94,9 @@
 (defn matches-an-assignment? [worker-heartbeat assigned-executors]
   (let [local-assignment (assigned-executors (:port worker-heartbeat))]
     (and local-assignment
-         (= (:storm-id worker-heartbeat) (:storm-id local-assignment))
-         (= (disj (set (:executors worker-heartbeat)) Constants/SYSTEM_EXECUTOR_ID)
-            (set (:executors local-assignment))))))
+         (= (:storm-id worker-heartbeat) (:storm-id local-assignment)))))
+;         (= (disj (set (:executors worker-heartbeat)) Constants/SYSTEM_EXECUTOR_ID)
+;            (set (:executors local-assignment))))))
 
 (defn read-allocated-workers
   "Returns map from worker id to worker heartbeat. if the heartbeat is nil, then the worker is dead (timed out or never wrote heartbeat)"
@@ -124,6 +124,14 @@
               ))
      )))
 
+(defn- limit-worker-cpu [conf id]
+  (let [pids (read-dir-contents (worker-pids-root conf id))
+        limit (conf "worker.cpu.limit")]
+    (when limit
+      (doseq [pid pids]
+        (log-message "limit cpu percentage " limit " for worker " id)
+        (launch-process (str "cpulimit -z -l " limit " -p " pid))))))
+
 (defn- wait-for-worker-launch [conf id start-time]
   (let [state (worker-state conf id)]    
     (loop []
@@ -138,7 +146,8 @@
           (Time/sleep 500)
           (recur)
           )))
-    (when-not (.get state LS-WORKER-HEARTBEAT)
+    (if (.get state LS-WORKER-HEARTBEAT)
+      (limit-worker-cpu conf id)
       (log-message "Worker " id " failed to start")
       )))
 
@@ -165,7 +174,7 @@
     ))
 
 (defn shutdown-worker [supervisor id]
-  (log-message "Shutting down " (:supervisor-id supervisor) ":" id)
+  (log-debug "Shutting down " (:supervisor-id supervisor) ":" id)
   (let [conf (:conf supervisor)
         pids (read-dir-contents (worker-pids-root conf id))
         thread-pid (@(:worker-thread-pids-atom supervisor) id)]
@@ -283,7 +292,7 @@
                                   (fn [[state _]] (= state :disallowed))
                                   allocated))]
     (log-debug "Allocated workers " allocated)
-    (log-debug "Disallowed workers " disallowed)
+    (log-message "Disallowed workers " disallowed)
     (doseq [id disallowed]
       (shutdown-worker supervisor id))
     ))
@@ -308,8 +317,8 @@
       (log-debug "Synchronizing supervisor")
       (log-debug "Storm code map: " storm-code-map)
       (log-debug "Downloaded storm ids: " downloaded-storm-ids)
-      (log-debug "All assignment: " all-assignment)
-      (log-debug "New assignment: " new-assignment)
+      (log-message "All assignment: " all-assignment)
+      (log-message "New assignment: " new-assignment)
       
       ;; download code first
       ;; This might take awhile
