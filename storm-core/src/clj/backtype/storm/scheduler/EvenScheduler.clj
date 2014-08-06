@@ -16,8 +16,10 @@
 (ns backtype.storm.scheduler.EvenScheduler
   (:use [backtype.storm util log config])
   (:require [clojure.set :as set])
-  (:import [backtype.storm.scheduler IScheduler Topologies
-            Cluster TopologyDetails WorkerSlot ExecutorDetails])
+  (:import [backtype.storm.scheduler IScheduler Topologies Util
+            Cluster TopologyDetails WorkerSlot SchedulerAssignment GeneralTopologyDetails
+            EvenScheduler ExecutorDetails])
+  (:import [java.util List])
   (:gen-class
     :implements [backtype.storm.scheduler.IScheduler]))
 
@@ -79,3 +81,6 @@
 
 (defn -schedule [this ^Topologies topologies ^Cluster cluster]
   (schedule-topologies-evenly topologies cluster))
+
+(defn -computeExecutors [this ^GeneralTopologyDetails topoDetails ^List compDetails]
+  (Util/computeExecutors compDetails))

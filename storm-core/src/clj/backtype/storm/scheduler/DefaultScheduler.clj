@@ -78,4 +78,4 @@
   (default-schedule topologies cluster))
 
 (defn -computeExecutors [this ^GeneralTopologyDetails topoDetails ^List compDetails]
-  (Util/computeExecutors topoDetails compDetails))
+  (Util/computeExecutors compDetails))

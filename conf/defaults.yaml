@@ -90,6 +90,8 @@ supervisor.monitor.frequency.secs: 3
 supervisor.heartbeat.frequency.secs: 5
 supervisor.enable: true
 
+file-server.port: 19888
+
 ### worker.* configs are for task workers
 worker.childopts: "-Xmx768m"
 worker.heartbeat.frequency.secs: 1

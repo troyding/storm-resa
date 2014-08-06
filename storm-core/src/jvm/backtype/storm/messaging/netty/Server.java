@@ -72,8 +72,8 @@ class Server implements IConnection {
         bootstrap.setPipelineFactory(new StormServerPipelineFactory(this));
 
         // Bind and start to accept incoming connections.
-        Channel channel = bootstrap.bind(new InetSocketAddress(port));
-        allChannels.add(channel);
+        Channel serverChannel = bootstrap.bind(new InetSocketAddress(port));
+        allChannels.add(serverChannel);
     }
 
     /**
@@ -133,6 +133,7 @@ class Server implements IConnection {
             allChannels.close().awaitUninterruptibly();
             factory.releaseExternalResources();
             allChannels = null;
+            LOG.info("Server shutdown");
         }
     }
 

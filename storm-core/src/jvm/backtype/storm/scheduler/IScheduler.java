@@ -27,7 +27,7 @@ public interface IScheduler {
 
     default Map<ExecutorDetails, String> computeExecutors(GeneralTopologyDetails topoDetails,
                                                           List<ComponentDetails> compDetails) {
-        return Util.computeExecutors(topoDetails, compDetails);
+        return Util.computeExecutors(compDetails);
     }
 
     /**

@@ -14,7 +14,8 @@
 ;; See the License for the specific language governing permissions and
 ;; limitations under the License.
 (ns backtype.storm.daemon.supervisor
-  (:import [backtype.storm.scheduler ISupervisor])
+  (:import [backtype.storm.scheduler ISupervisor]
+           [backtype.storm.utils FileServer Utils])
   (:use [backtype.storm bootstrap])
   (:use [backtype.storm.daemon common])
   (:require [backtype.storm.daemon [worker :as worker]])
@@ -317,8 +318,8 @@
       (log-debug "Synchronizing supervisor")
       (log-debug "Storm code map: " storm-code-map)
       (log-debug "Downloaded storm ids: " downloaded-storm-ids)
-      (log-message "All assignment: " all-assignment)
-      (log-message "New assignment: " new-assignment)
+      (log-debug "All assignment: " all-assignment)
+      (log-debug "New assignment: " new-assignment)
       
       ;; download code first
       ;; This might take awhile
@@ -518,9 +519,11 @@
       ))
 
 (defn -launch [supervisor]
-  (let [conf (read-storm-config)]
+  (let [conf (read-storm-config)
+        file-server-port (Utils/getInt (conf "file-server.port"))]
     (validate-distributed-mode! conf)
-    (mk-supervisor conf nil supervisor)))
+    (mk-supervisor conf nil supervisor)
+    (.start (FileServer. file-server-port (str (conf STORM-LOCAL-DIR) file-path-separator "data")))))
 
 (defn standalone-supervisor []
   (let [conf-atom (atom nil)
