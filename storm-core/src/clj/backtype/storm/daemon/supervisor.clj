@@ -91,13 +91,17 @@
         [id (read-worker-heartbeat conf id)]))
     ))
 
-
 (defn matches-an-assignment? [worker-heartbeat assigned-executors]
   (let [local-assignment (assigned-executors (:port worker-heartbeat))]
     (and local-assignment
          (= (:storm-id worker-heartbeat) (:storm-id local-assignment)))))
-;         (= (disj (set (:executors worker-heartbeat)) Constants/SYSTEM_EXECUTOR_ID)
-;            (set (:executors local-assignment))))))
+
+;(defn matches-an-assignment? [worker-heartbeat assigned-executors]
+;  (let [local-assignment (assigned-executors (:port worker-heartbeat))]
+;    (and local-assignment
+;      (= (:storm-id worker-heartbeat) (:storm-id local-assignment))
+;      (= (disj (set (:executors worker-heartbeat)) Constants/SYSTEM_EXECUTOR_ID)
+;        (set (:executors local-assignment))))))
 
 (defn read-allocated-workers
   "Returns map from worker id to worker heartbeat. if the heartbeat is nil, then the worker is dead (timed out or never wrote heartbeat)"

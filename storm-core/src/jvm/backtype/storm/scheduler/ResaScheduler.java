@@ -72,16 +72,18 @@ public class ResaScheduler implements IScheduler {
             }
             Map<WorkerSlot, List<ExecutorDetails>> workSlot2Executors = new HashMap<>();
             // parse out existing assignment
-            ((Map<String, String>) assignment.getOrDefault("assignment", Collections.EMPTY_MAP)).forEach((k, v) ->
-                    workSlot2Executors.computeIfAbsent(convert2WorkerSlot(v, cluster), slot -> new ArrayList<>())
-                            .add(convert2ExecutorDetails(k)));
+            ((Map<String, String>) assignment.getOrDefault("assignment", Collections.EMPTY_MAP)).forEach((k, v) -> {
+                WorkerSlot slot = convert2WorkerSlot(v, cluster);
+                if (slot != null) {
+                    workSlot2Executors.computeIfAbsent(slot, s -> new ArrayList<>()).add(convert2ExecutorDetails(k));
+                } else {
+                    LOG.warn("Cannot find slot: {}", v);
+                }
+            });
             // get available slot, random select
             List<WorkerSlot> availableSlots = cluster.getAssignableSlots();
             Collections.shuffle(availableSlots);
-            for (int i = 0; i < availableSlots.size(); i++) {
-                if (workSlot2Executors.size() >= t.getNumWorkers()) {
-                    break;
-                }
+            for (int i = 0; i < availableSlots.size() && workSlot2Executors.size() < t.getNumWorkers(); i++) {
                 workSlot2Executors.computeIfAbsent(availableSlots.get(i), k -> new ArrayList<>());
             }
             // get unassigned executors
@@ -89,16 +91,19 @@ public class ResaScheduler implements IScheduler {
             workSlot2Executors.values().forEach(executors::removeAll);
             List<ExecutorDetails>[] tmp = workSlot2Executors.values().stream().toArray(List[]::new);
             int[] pack = packAvg(t.getExecutors().size(), tmp.length);
-            Iterator<ExecutorDetails> iter = executors.iterator();
+            List<ExecutorDetails> executorList = new ArrayList<>(executors);
+//            Collections.shuffle(executorList);
+            int pos = 0;
             for (int i = 0; i < pack.length; i++) {
                 List<ExecutorDetails> exeList = tmp[i];
                 int cnt = Math.max(0, pack[i] - exeList.size());
-                for (int j = 0; j < cnt && iter.hasNext(); j++) {
-                    exeList.add(iter.next());
+                for (int j = 0; j < cnt && pos < executorList.size(); j++) {
+                    exeList.add(executorList.get(pos++));
                 }
             }
+            LOG.info("New assignment: {}", workSlot2Executors);
             // finish assignment
-            workSlot2Executors.forEach((slot, executorList) -> cluster.assign(slot, t.getId(), executorList));
+            workSlot2Executors.forEach((slot, eList) -> cluster.assign(slot, t.getId(), eList));
         });
         defaultScheduler.schedule(topologies, cluster);
     }
@@ -121,8 +126,8 @@ public class ResaScheduler implements IScheduler {
     private WorkerSlot convert2WorkerSlot(String hostPort, Cluster cluster) {
         String[] workerTmp = hostPort.split(":");
         Integer port = Integer.valueOf(workerTmp[1]);
-        String id = cluster.getSupervisorsByHost(workerTmp[0]).stream().filter(s -> s.getAllPorts().contains(port))
-                .findFirst().get().getId();
-        return new WorkerSlot(id, port);
+        Optional<SupervisorDetails> supervisor = cluster.getSupervisorsByHost(workerTmp[0]).stream()
+                .filter(s -> s.getAllPorts().contains(port)).findFirst();
+        return supervisor.isPresent() ? new WorkerSlot(supervisor.get().getId(), port) : null;
     }
 }
