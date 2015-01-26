@@ -22,6 +22,7 @@ import org.jboss.netty.buffer.ChannelBufferOutputStream;
 import org.jboss.netty.buffer.ChannelBuffers;
 
 enum ControlMessage {
+    ///Test by Tom
     CLOSE_MESSAGE((short)-100),
     EOB_MESSAGE((short)-201),
     OK_RESPONSE((short)-200),
