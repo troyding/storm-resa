@@ -28,10 +28,16 @@ class StormServerHandler extends SimpleChannelUpstreamHandler {
     private static final Logger LOG = LoggerFactory.getLogger(StormServerHandler.class);
     Server server;
     private AtomicInteger failure_count;
+    private TimeStampReporting tsReporter;
 
     StormServerHandler(Server server) {
         this.server = server;
         failure_count = new AtomicInteger(0);
+
+        ///TODO: Add by Tom, caution, we start a separate thread here!!!
+        int timeStampReportingInterval = 30000;
+        tsReporter = new TimeStampReporting(timeStampReportingInterval);
+        new Thread(tsReporter).start();
     }
 
     @Override
@@ -54,6 +60,14 @@ class StormServerHandler extends SimpleChannelUpstreamHandler {
                 channel.write(ControlMessage.OK_RESPONSE);
             else channel.write(ControlMessage.FAILURE_RESPONSE);
             return;
+        }
+
+        ///TODO: Add by Tom, output TS_MESSAGE and timestamp information
+        if (msg instanceof TimeStampMessage){
+            long sendTimeStamp = ((TimeStampMessage)msg).timeStamp;
+            int totalBytes = ((TimeStampMessage)msg).totalBytes;
+            long timeDiff = Math.max(0, System.currentTimeMillis() - sendTimeStamp);
+            tsReporter.dataUpdate(timeDiff, totalBytes);
         }
 
         //enqueue the received message for processing

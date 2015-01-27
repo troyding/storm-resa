@@ -18,6 +18,7 @@
 package backtype.storm.messaging.netty;
 
 import backtype.storm.messaging.TaskMessage;
+import backtype.storm.utils.Time;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelHandlerContext;
@@ -49,9 +50,29 @@ public class MessageDecoder extends FrameDecoder {
         short code = buf.readShort();
         
         //case 1: Control message
+        //ControlMessage ctrl_msg = ControlMessage.mkMessage(code);
+        //if (ctrl_msg != null) return ctrl_msg;
+
+        //case 1: Control message
+        ///TODO: Modified by tom to adapt to TS_MESSAGE
         ControlMessage ctrl_msg = ControlMessage.mkMessage(code);
-        if (ctrl_msg != null) return ctrl_msg;
-        
+        if (ctrl_msg != null)
+        {
+            if (ctrl_msg == ControlMessage.TS_MESSAGE){
+                if (buf.readableBytes() < TimeStampMessage.payLoadLen) {
+                    //need more data
+                    buf.resetReaderIndex();
+                    return null;
+                } else {
+                    long timeStamp = buf.readLong();
+                    int totalBytes = buf.readInt();
+                    return new TimeStampMessage(timeStamp, totalBytes);
+                }
+            } else {
+                return ctrl_msg;
+            }
+        }
+
         //case 2: task Message
         short task = code;
         

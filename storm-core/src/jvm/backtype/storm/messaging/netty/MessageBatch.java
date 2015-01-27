@@ -33,6 +33,8 @@ class MessageBatch {
         this.buffer_size = buffer_size;
         msgs = new ArrayList<Object>();
         encoded_length = ControlMessage.EOB_MESSAGE.encodeLength();
+        ///TODO: Add by Tom, timestamp information
+        encoded_length += ControlMessage.TS_MESSAGE.encodeLength() + TimeStampMessage.payLoadLen;
     }
 
     void add(Object obj) {
@@ -134,7 +136,10 @@ class MessageBatch {
                 writeTaskMessage(bout, (TaskMessage)msg);
             else
                 ((ControlMessage)msg).write(bout);
-        
+
+        ///TODO: Add by Tom, timestamp information
+        ControlMessage.TS_MESSAGE.write(bout, new TimeStampMessage(System.currentTimeMillis(), encoded_length));
+
         //add a END_OF_BATCH indicator
         ControlMessage.EOB_MESSAGE.write(bout);
 

@@ -22,7 +22,8 @@ import org.jboss.netty.buffer.ChannelBufferOutputStream;
 import org.jboss.netty.buffer.ChannelBuffers;
 
 enum ControlMessage {
-    ///byTom
+    ///TODO: Add by Tom, timestamp information
+    TS_MESSAGE((short)-500),
     //
     CLOSE_MESSAGE((short)-100),
     EOB_MESSAGE((short)-201),
@@ -65,5 +66,15 @@ enum ControlMessage {
 
     void write(ChannelBufferOutputStream bout) throws Exception {
         bout.writeShort(code);        
-    } 
+    }
+
+    ///TODO: Add by Tom, output TS_MESSAGE and timestamp information
+    void write(ChannelBufferOutputStream bout, TimeStampMessage stampMessage) throws Exception {
+        if (this == ControlMessage.TS_MESSAGE) {
+            bout.writeShort(code);
+            bout.writeLong(stampMessage.timeStamp);
+            bout.writeInt(stampMessage.totalBytes);
+        }
+    }
+
 }
