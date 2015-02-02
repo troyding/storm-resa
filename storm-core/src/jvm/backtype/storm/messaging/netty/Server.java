@@ -80,7 +80,8 @@ class Server implements IConnection {
     }
 
     protected void metaMessageReceived(SocketAddress host, MetadataMessage msg) {
-        tsReporting.dataUpdate(host, System.currentTimeMillis() - msg.timeStamp, msg.totalBytes);
+        tsReporting.update(host, Math.abs(System.currentTimeMillis() - msg.timeStamp), msg.totalBytes);
+        LOG.debug("meta Message Received from: {}, payload size: {}", host, msg.totalBytes);
     }
 
     /**

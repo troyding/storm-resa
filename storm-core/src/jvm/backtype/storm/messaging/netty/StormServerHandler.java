@@ -59,6 +59,7 @@ class StormServerHandler extends SimpleChannelUpstreamHandler {
         ///TODO: Add by Tom, output META_MESSAGE and timestamp information
         if (msg instanceof MetadataMessage) {
             server.metaMessageReceived(ctx.getChannel().getRemoteAddress(), (MetadataMessage) msg);
+            return;
         }
 
         //enqueue the received message for processing

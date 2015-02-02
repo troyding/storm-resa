@@ -38,7 +38,7 @@ class TimeStampReporting extends Thread {
         start();
     }
 
-    public void dataUpdate(SocketAddress host, long delay, int bytes) {
+    public void update(SocketAddress host, long delay, int bytes) {
         host2Delay.computeIfAbsent(host, key -> new Counter()).delayUpdate(delay, bytes);
     }
 
