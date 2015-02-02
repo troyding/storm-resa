@@ -18,13 +18,12 @@
 package backtype.storm.messaging.netty;
 
 import backtype.storm.messaging.TaskMessage;
-import backtype.storm.utils.Time;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelHandlerContext;
 import org.jboss.netty.handler.codec.frame.FrameDecoder;
 
-public class MessageDecoder extends FrameDecoder {    
+public class MessageDecoder extends FrameDecoder {
     /*
      * Each ControlMessage is encoded as:
      *  code (<0) ... short(2)
@@ -48,25 +47,22 @@ public class MessageDecoder extends FrameDecoder {
 
         //read the short field
         short code = buf.readShort();
-        
+
         //case 1: Control message
         //ControlMessage ctrl_msg = ControlMessage.mkMessage(code);
         //if (ctrl_msg != null) return ctrl_msg;
 
         //case 1: Control message
-        ///TODO: Modified by tom to adapt to TS_MESSAGE
+        ///TODO: Modified by tom to adapt to META_MESSAGE
         ControlMessage ctrl_msg = ControlMessage.mkMessage(code);
-        if (ctrl_msg != null)
-        {
-            if (ctrl_msg == ControlMessage.TS_MESSAGE){
-                if (buf.readableBytes() < TimeStampMessage.payLoadLen) {
+        if (ctrl_msg != null) {
+            if (ctrl_msg.equals(ControlMessage.META_MESSAGE)) {
+                if (buf.readableBytes() < MetadataMessage.MSG_LEN) {
                     //need more data
                     buf.resetReaderIndex();
                     return null;
                 } else {
-                    long timeStamp = buf.readLong();
-                    int totalBytes = buf.readInt();
-                    return new TimeStampMessage(timeStamp, totalBytes);
+                    return MetadataMessage.read(buf);
                 }
             } else {
                 return ctrl_msg;
@@ -75,7 +71,7 @@ public class MessageDecoder extends FrameDecoder {
 
         //case 2: task Message
         short task = code;
-        
+
         // Make sure that we have received at least an integer (length) 
         if (buf.readableBytes() < 4) {
             //need more data
@@ -85,10 +81,10 @@ public class MessageDecoder extends FrameDecoder {
 
         // Read the length field.
         int length = buf.readInt();
-        if (length<=0) {
+        if (length <= 0) {
             return new TaskMessage(task, null);
         }
-        
+
         // Make sure if there's enough bytes in the buffer.
         if (buf.readableBytes() < length) {
             // The whole bytes were not received yet - return null.
@@ -101,6 +97,6 @@ public class MessageDecoder extends FrameDecoder {
 
         // Successfully decoded a frame.
         // Return a TaskMessage object
-        return new TaskMessage(task,payload.array());
+        return new TaskMessage(task, payload.array());
     }
 }

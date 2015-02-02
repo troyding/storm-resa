@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -46,6 +47,7 @@ class Server implements IConnection {
     volatile ChannelGroup allChannels = new DefaultChannelGroup("storm-server");
     final ChannelFactory factory;
     final ServerBootstrap bootstrap;
+    TimeStampReporting tsReporting;
 
     @SuppressWarnings("rawtypes")
     Server(Map storm_conf, int port, AtomicBoolean closed) {
@@ -74,6 +76,11 @@ class Server implements IConnection {
         // Bind and start to accept incoming connections.
         Channel serverChannel = bootstrap.bind(new InetSocketAddress(port));
         allChannels.add(serverChannel);
+        tsReporting = new TimeStampReporting(30000);
+    }
+
+    protected void metaMessageReceived(SocketAddress host, MetadataMessage msg) {
+        tsReporting.dataUpdate(host, System.currentTimeMillis() - msg.timeStamp, msg.totalBytes);
     }
 
     /**

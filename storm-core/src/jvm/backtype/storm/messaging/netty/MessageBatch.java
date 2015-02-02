@@ -28,13 +28,17 @@ class MessageBatch {
     private int buffer_size;
     private ArrayList<Object> msgs;
     private int encoded_length;
+    ///TODO: Add by troy, indicate whether metadata is included
+    private boolean containsMetadata;
 
-    MessageBatch(int buffer_size) {
+    MessageBatch(int buffer_size, boolean containsMetadata) {
         this.buffer_size = buffer_size;
         msgs = new ArrayList<Object>();
+        this.containsMetadata = containsMetadata;
         encoded_length = ControlMessage.EOB_MESSAGE.encodeLength();
-        ///TODO: Add by Tom, timestamp information
-        encoded_length += ControlMessage.TS_MESSAGE.encodeLength() + TimeStampMessage.payLoadLen;
+        if (containsMetadata) {
+            encoded_length += (ControlMessage.META_MESSAGE.encodeLength() + MetadataMessage.MSG_LEN);
+        }
     }
 
     void add(Object obj) {
@@ -42,34 +46,34 @@ class MessageBatch {
             throw new RuntimeException("null object forbidded in message batch");
 
         if (obj instanceof TaskMessage) {
-            TaskMessage msg = (TaskMessage)obj;
+            TaskMessage msg = (TaskMessage) obj;
             msgs.add(msg);
             encoded_length += msgEncodeLength(msg);
             return;
         }
 
         if (obj instanceof ControlMessage) {
-            ControlMessage msg = (ControlMessage)obj;
+            ControlMessage msg = (ControlMessage) obj;
             msgs.add(msg);
             encoded_length += msg.encodeLength();
             return;
         }
 
-        throw new RuntimeException("Unsuppoted object type "+obj.getClass().getName());
+        throw new RuntimeException("Unsuppoted object type " + obj.getClass().getName());
     }
 
     void remove(Object obj) {
         if (obj == null) return;
 
         if (obj instanceof TaskMessage) {
-            TaskMessage msg = (TaskMessage)obj;
+            TaskMessage msg = (TaskMessage) obj;
             msgs.remove(msg);
             encoded_length -= msgEncodeLength(msg);
             return;
         }
 
         if (obj instanceof ControlMessage) {
-            ControlMessage msg = (ControlMessage)obj;
+            ControlMessage msg = (ControlMessage) obj;
             msgs.remove(msg);
             encoded_length -= msg.encodeLength();
             return;
@@ -82,11 +86,12 @@ class MessageBatch {
 
     /**
      * try to add a TaskMessage to a batch
+     *
      * @param taskMsg
      * @return false if the msg could not be added due to buffer size limit; true otherwise
      */
     boolean tryAdd(TaskMessage taskMsg) {
-        if ((encoded_length + msgEncodeLength(taskMsg)) > buffer_size) 
+        if ((encoded_length + msgEncodeLength(taskMsg)) > buffer_size)
             return false;
         add(taskMsg);
         return true;
@@ -96,13 +101,14 @@ class MessageBatch {
         if (taskMsg == null) return 0;
 
         int size = 6; //INT + SHORT
-        if (taskMsg.message() != null) 
+        if (taskMsg.message() != null)
             size += taskMsg.message().length;
         return size;
     }
 
     /**
      * Has this batch used up allowed buffer size
+     *
      * @return
      */
     boolean isFull() {
@@ -110,7 +116,8 @@ class MessageBatch {
     }
 
     /**
-     * true if this batch doesn't have any messages 
+     * true if this batch doesn't have any messages
+     *
      * @return
      */
     boolean isEmpty() {
@@ -119,6 +126,7 @@ class MessageBatch {
 
     /**
      * # of msgs in this batch
+     *
      * @return
      */
     int size() {
@@ -130,44 +138,44 @@ class MessageBatch {
      */
     ChannelBuffer buffer() throws Exception {
         ChannelBufferOutputStream bout = new ChannelBufferOutputStream(ChannelBuffers.directBuffer(encoded_length));
-        
-        for (Object msg : msgs) 
-            if (msg instanceof TaskMessage)
-                writeTaskMessage(bout, (TaskMessage)msg);
-            else
-                ((ControlMessage)msg).write(bout);
 
-        ///TODO: Add by Tom, timestamp information
-        ControlMessage.TS_MESSAGE.write(bout, new TimeStampMessage(System.currentTimeMillis(), encoded_length));
+        for (Object msg : msgs)
+            if (msg instanceof TaskMessage)
+                writeTaskMessage(bout, (TaskMessage) msg);
+            else
+                ((ControlMessage) msg).write(bout);
+
+        if (containsMetadata) {
+            ControlMessage.META_MESSAGE.write(bout);
+            new MetadataMessage(System.currentTimeMillis(), encoded_length).write(bout);
+        }
 
         //add a END_OF_BATCH indicator
         ControlMessage.EOB_MESSAGE.write(bout);
-
         bout.close();
-
         return bout.buffer();
     }
 
     /**
      * write a TaskMessage into a stream
-     *
+     * <p>
      * Each TaskMessage is encoded as:
-     *  task ... short(2)
-     *  len ... int(4)
-     *  payload ... byte[]     *  
+     * task ... short(2)
+     * len ... int(4)
+     * payload ... byte[]     *
      */
     private void writeTaskMessage(ChannelBufferOutputStream bout, TaskMessage message) throws Exception {
         int payload_len = 0;
         if (message.message() != null)
-            payload_len =  message.message().length;
+            payload_len = message.message().length;
 
         int task_id = message.task();
         if (task_id > Short.MAX_VALUE)
-            throw new RuntimeException("Task ID should not exceed "+Short.MAX_VALUE);
-        
-        bout.writeShort((short)task_id);
+            throw new RuntimeException("Task ID should not exceed " + Short.MAX_VALUE);
+
+        bout.writeShort((short) task_id);
         bout.writeInt(payload_len);
-        if (payload_len >0)
+        if (payload_len > 0)
             bout.write(message.message());
     }
 }

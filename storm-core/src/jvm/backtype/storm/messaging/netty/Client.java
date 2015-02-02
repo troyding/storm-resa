@@ -139,7 +139,8 @@ class Client implements IConnection {
      */
     MessageBatch takeMessages() throws InterruptedException {
         //1st message
-        MessageBatch batch = new MessageBatch(buffer_size);
+        // TODO: Add a sampler to decide whether a meta message is required
+        MessageBatch batch = new MessageBatch(buffer_size, true);
         Object msg = message_queue.take();
         batch.add(msg);
 
