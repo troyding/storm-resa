@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- *
+ * <p>
  * http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,6 +17,7 @@
  */
 package backtype.storm.utils;
 
+import com.google.common.util.concurrent.AtomicDouble;
 import com.lmax.disruptor.ClaimStrategy;
 import com.lmax.disruptor.InsufficientCapacityException;
 import com.lmax.disruptor.WaitStrategy;
@@ -34,49 +35,65 @@ import java.util.concurrent.atomic.AtomicLong;
 public class TracedDisruptorQueue extends DisruptorQueue {
 
     class QueueState {
-        public AtomicInteger count = new AtomicInteger();
         public AtomicLong totalLen = new AtomicLong();
+        public AtomicDouble arrIntSum = new AtomicDouble();
+        public AtomicDouble arrIntSum2 = new AtomicDouble();
 
-        public void update(int len) {
-            count.incrementAndGet();
+        public void updateQLen(int len) {
             totalLen.addAndGet(len);
         }
 
+        public void updateArriveInterval(double interval) {
+            arrIntSum.addAndGet(interval);
+            arrIntSum2.addAndGet(interval * interval);
+        }
+
         void getAndReset(Map<String, Number> output) {
-            output.put("sampleCount", count.getAndSet(0));
             output.put("totalQueueLen", totalLen.getAndSet(0));
+            output.put("arrIntervalSum", arrIntSum.getAndSet(0));
+            output.put("arrIntervalSum2", arrIntSum2.getAndSet(0));
         }
 
     }
 
-    private AtomicInteger conuter = new AtomicInteger();
-    private long sampleCounterBase = 0;
+    private AtomicInteger counter = new AtomicInteger();
     private long last = System.currentTimeMillis();
     private final int sampleInterval;
     private QueueState queueState = new QueueState();
+    private AtomicLong lastArriveTime = new AtomicLong(0);
 
     public TracedDisruptorQueue(ClaimStrategy claim, WaitStrategy wait, Map<String, Object> conf) {
         super(claim, wait);
-        this.sampleInterval = (int) (1 / ((Number) conf.getOrDefault("topology.queue.sample.rate", 0.05f)).floatValue());
+        float sampleRate = 0.05f;
+        if (conf.containsKey("topology.queue.sample.rate")) {
+            sampleRate = ((Number) conf.get("topology.queue.sample.rate")).floatValue();
+        }
+        this.sampleInterval = Math.max((int) (1 / sampleRate), 2);
     }
 
     public void publish(Object obj, boolean block) throws InsufficientCapacityException {
         super.publish(obj, block);
-        if ((sampleCounterBase + conuter.incrementAndGet()) % sampleInterval == 0) {
-            queueState.update((int) population());
+        if (counter.incrementAndGet() % sampleInterval == 0) {
+            queueState.updateQLen((int) population());
+            lastArriveTime.set(System.nanoTime());
+        } else if (lastArriveTime.get() != 0) {
+            long lastArriveTimeTmp = lastArriveTime.getAndSet(0);
+            if (lastArriveTimeTmp != 0) {
+                queueState.updateArriveInterval((System.nanoTime() - lastArriveTimeTmp) / 1000000.0);
+            }
         }
     }
 
     @Override
     public Object getState() {
-        long count = conuter.getAndSet(0);
-        if (count == 0) {
+        long count = counter.getAndSet(0);
+        if (count < sampleInterval) {
             return Collections.emptyMap();
         }
-        sampleCounterBase = sampleCounterBase + count;
         Map state = new HashMap<String, Number>();
         state.put("totalCount", (int) count);
         queueState.getAndReset(state);
+        state.put("sampleCount", count / sampleInterval);
         long now = System.currentTimeMillis();
         state.put("duration", now - last);
         last = now;
